@@ -18,7 +18,7 @@ interface Item {
   refer: string | Item;
 }
 
-const loaderFunction = async (params: DynamoDB.GetItemInput[]) => {
+const loaderFunction = async (params: string[]) => {
   const param: DynamoDB.BatchGetItemInput = {
     RequestItems: {
       TopicOn: {
@@ -27,10 +27,15 @@ const loaderFunction = async (params: DynamoDB.GetItemInput[]) => {
     },
   };
   params.forEach(key => {
-    param.RequestItems.TopicOn.Keys.push(key.Key);
+    param.RequestItems.TopicOn.Keys.push({ postId: { S: key } });
   });
-  const result = await docClient.batchGetItem(param).promise();
-  return result.Responses!.TopicOn;
+  try {
+    const result = await docClient.batchGetItem(param).promise();
+    return result.Responses!.TopicOn;
+  } catch (e) {
+    console.log(e);
+    throw e;
+  }
 };
 
 const loader = new DataLoader(loaderFunction);
@@ -43,16 +48,8 @@ app.get("/", async function(_, res) {
   const data = await docClient.scan(params).promise();
   const unmarshalled = data.Items!.map(value => unmarshall(value)) as Item[];
   const result = unmarshalled.map(async item => {
-    if (item.refer !== "none") {
-      const params: DynamoDB.GetItemInput = {
-        TableName: "TopicOn",
-        Key: {
-          postId: {
-            S: item.postId,
-          },
-        },
-      };
-      const referItem = unmarshall(await loader.load(params)); // await docClient.getItem(params).promise();
+    if (item.refer !== "none" && typeof item.refer === "string") {
+      const referItem = unmarshall(await loader.load(item.refer));
       item.refer = referItem as Item;
     }
     return item;
